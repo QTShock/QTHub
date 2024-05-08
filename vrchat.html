@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/vrc.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QTShock Manager</title>
+    <script type="module" src="/src/vrc.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="container">
+        <a href="index.html"><button style="height: 40px; width: 50px; padding:0; float: left;">↖</button></a>
+      <div style="align-content: center;"><img style="height: 75px; width: 75px;" src="/src/assets/logo.png"></div>
+      <h1 style="margin-bottom: 10px;">VRChat</h1>
+      <div class="divider"></div>
+
+      <div class="main-panel" id="main-panel">
+
+
+        <div class="button b2">
+          <input id="vrc-toggle" type="checkbox" class="checkbox" id="preshockSwitch"/>
+          <div class="knobs"></div>
+          <div class="layer"></div>
+        </div>
+
+        <div class="console-box">
+          <ul id="osc-console">
+          </ul>
+        </div>
+
+        <div class="input-row">
+          <label for="shockStrength">Shock Strength:</label>
+          <input id="shock-strength" name="shockStrength" type="number" value="23" min="1" max="99"></input>
+          <label for="vibrateStrength">Vibrate Strength</label>
+          <input id="vibrate-strength" name="vibrateStrength" type="number" value="23" min="1" max="99"></input>
+        </div>
+      </div>
+
+      <div id="page-msg">Looking for QTShock on the network....</div>
+
+    </div>
+  </body>
+</html>
