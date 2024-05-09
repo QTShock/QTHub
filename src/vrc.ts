@@ -42,18 +42,32 @@ function checkIpAddress(ip: string) {
 
 async function shock() {
   if (shockStrengthEl) {
-    console.log(await invoke("shock", {ip: qtshockIp, strength: shockStrengthEl.value }));
+    console.log(await invoke("shock", {strength: shockStrengthEl.value }));
   }
 }
 
 async function vibrate() {
     if (vibrateStrengthEl) {
-      console.log(await invoke("vibrate", {ip: qtshockIp, strength: vibrateStrengthEl.value }));
+      console.log(await invoke("vibrate", {strength: vibrateStrengthEl.value }));
     }
 }
 
 async function beep() {
-    console.log(await invoke("beep", {ip: qtshockIp}));
+    console.log(await invoke("beep"));
+}
+
+async function setShockStrength(strength: number) {
+    if (!shockStrengthEl) {
+        return;
+    }
+    await invoke("set_shock_strength", {strength: strength })
+}
+
+async function setVibrateStrength(strength: number) {
+    if (!vibrateStrengthEl) {
+        return;
+    }
+    await invoke("set_vibrate_strength", {strength: strength })
 }
 
 async function oscLog(txt: string) {
@@ -102,21 +116,29 @@ window.addEventListener("DOMContentLoaded", async () => {
     shockStrengthEl = document.getElementById("shock-strength") as HTMLInputElement;
     shockStrengthEl.addEventListener("change", (e) => {
         if (e.target) {
-            let strength = parseInt((e.target as HTMLInputElement).value);
+            let strengthStr = (e.target as HTMLInputElement).value;
+            let strength = parseInt(strengthStr);
             if (strength < 1 || strength > 99) {
                 if (!shockStrengthEl) return;
                 shockStrengthEl.value = "24";
+                strength = 24;
+                
             }
+            setShockStrength(strength);
+            
         }
     });
     vibrateStrengthEl = document.getElementById("vibrate-strength") as HTMLInputElement;
     vibrateStrengthEl.addEventListener("change", (e) => {
         if (e.target) {
-            let strength = parseInt((e.target as HTMLInputElement).value);
+            let strengthStr = (e.target as HTMLInputElement).value;
+            let strength = parseInt(strengthStr);
             if (strength < 1 || strength > 99) {
                 if (!vibrateStrengthEl) return;
                 vibrateStrengthEl.value = "24";
+                strength = 24;
             }
+            setVibrateStrength(strength);
         }
     });
 });

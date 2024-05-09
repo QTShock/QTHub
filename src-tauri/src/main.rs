@@ -1,8 +1,11 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use defines::{QTSInteraction, QTSOSCType};
+use tauri::async_runtime::block_on;
 use tauri::{AppHandle, Manager};
-use rosc::OscPacket;
+use rosc::{OscPacket, OscType};
+use std::collections::HashMap;
 use std::env;
 use std::net::{SocketAddrV4, UdpSocket};
 use std::str::FromStr;
@@ -10,16 +13,146 @@ use std::sync::Mutex;
 use std::thread;
 
 use dns_lookup::lookup_host;
+
+use poem::{
+    handler, listener::TcpListener, post,
+    Route, Server, web::Json
+};
+use gsi_cs2::{player::MatchStats, provider::Provider, Body};
 use reqwest;
 
 
+mod defines;
+
+
+static QTSHOCK_SHK_STRENGTH: Mutex<i16> = Mutex::new(10);
+static QTSHOCK_VIB_STRENGTH: Mutex<i16> = Mutex::new(80);
+static QTSHOCK_IP: Mutex<String> = Mutex::new(String::new());
+
 static VRC_OSC_THREAD: Mutex<bool> = Mutex::new(true);
+static VRC_OSC_CANSHOCK: Mutex<bool> = Mutex::new(true);
+
+static CS_CURRENT_DEATH_COUNT: Mutex<u16> = Mutex::new(0);
+
+
+
+#[tauri::command]
+async fn set_shock_strength(strength: i16) {
+    *QTSHOCK_SHK_STRENGTH.lock().unwrap() = strength;
+}
+
+#[tauri::command]
+async fn set_vibrate_strength(strength: i16) {
+    *QTSHOCK_VIB_STRENGTH.lock().unwrap() = strength;
+}
+
+
+
+
+
+async fn death_check(data: Json<Body>) {
+    let player = match data.player.as_ref() {
+        Some(plyr) => {
+            plyr
+        },
+        None => {
+            return;
+        }
+    };
+    let match_stats = match player.match_stats.as_ref() {
+        Some(p_stats) => {
+            p_stats
+        },
+        None => {
+            return;
+        }
+    };
+    let provider = match data.provider.as_ref() {
+        Some(p_provider) => {
+            p_provider
+        },
+        None => {
+            return;
+        }
+    };
+
+    if provider.steam_id != player.steam_id.clone().unwrap() {
+        return;
+    }
+
+    if *CS_CURRENT_DEATH_COUNT.lock().unwrap() > match_stats.deaths {
+        *CS_CURRENT_DEATH_COUNT.lock().unwrap() = 0;
+    }
+
+    if *CS_CURRENT_DEATH_COUNT.lock().unwrap() < match_stats.deaths {
+        *CS_CURRENT_DEATH_COUNT.lock().unwrap() = match_stats.deaths;
+        println!("Player died!");
+        let mut map = HashMap::new();
+        map.insert("_type", 1);
+        map.insert("Strength", 2);
+
+        let cs_web_client = reqwest::Client::new();
+        trigger_qtshock(QTSInteraction::SHOCK);
+    }
+}
+
+
+
+
+
+
+
 
 
 #[derive(Clone, serde::Serialize)]
 struct Payload {
     message: String
 }
+
+fn trigger_qtshock(interaction: QTSInteraction) -> Result<(), String>{
+    match interaction {
+        QTSInteraction::SHOCK => {
+            shock(QTSHOCK_SHK_STRENGTH.lock().unwrap().to_string().as_str());
+            Ok(())
+        },
+        QTSInteraction::VIBRATE => {
+            vibrate(QTSHOCK_VIB_STRENGTH.lock().unwrap().to_string().as_str());
+            Ok(())
+        },
+        QTSInteraction::BEEP => {
+            beep();
+            Ok(())
+        },
+        _ => {
+            Err("Something went wrong!".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+fn start_cs_listener(app: tauri::AppHandle) {
+    
+    let new_thread = thread::spawn(|| {
+        block_on(cs_thread(app));
+    });
+    beep();
+}
+
+#[handler]
+async fn cs_update(data: Json<Body>) {
+    death_check(data.clone()).await;
+}
+
+async fn cs_thread(app: tauri::AppHandle) -> Result<(), std::io::Error>{
+    tracing_subscriber::fmt::init();
+
+    let app = Route::new().at("/", post(cs_update));
+
+    Server::new(TcpListener::bind("127.0.0.1:3000"))
+        .run(app)
+        .await
+}
+
 
 #[tauri::command]
 fn start_vrc_osc(app: tauri::AppHandle, start: bool) {
@@ -30,7 +163,10 @@ fn start_vrc_osc(app: tauri::AppHandle, start: bool) {
     let new_thread = thread::spawn(|| {
         vrc_osc_thread(app);
     });
+    let _ = beep();
 }
+
+
 
 fn handle_packet(app: &tauri::AppHandle, packet: OscPacket) {
     let keep_thread: bool = *VRC_OSC_THREAD.lock().unwrap();
@@ -43,6 +179,70 @@ fn handle_packet(app: &tauri::AppHandle, packet: OscPacket) {
                 return;
             }
             app.emit_all("vrc-osc-event", Payload { message: format!("VRC OSC msg | {}: {:?}", msg.addr, msg.args).into() }).unwrap();
+            let addr_parts: Vec<&str> = msg.addr.split("_").collect();
+            let qt_osc_type: QTSOSCType = match QTSOSCType::from_str(addr_parts[1]) {
+                Ok(osc_type) => osc_type,
+                _ => {
+                    app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad command type.").into() }).unwrap();
+                    return;
+                }
+            };
+
+            let qt_osc_interaction: QTSInteraction = match QTSInteraction::from_str(addr_parts[2]) {
+                Ok(osc_interaction) => osc_interaction,
+                _ => {
+                    app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad interaction type.").into() }).unwrap();
+                    return;
+                }
+            };
+
+            match qt_osc_type {
+                QTSOSCType::PUSH => {
+                    match msg.args[0] {
+                        OscType::Float(f) => {
+                            if f > 0.8f32 && *VRC_OSC_CANSHOCK.lock().unwrap() == true {
+                                *VRC_OSC_CANSHOCK.lock().unwrap() = false;
+                                match trigger_qtshock(qt_osc_interaction) {
+                                    Ok(()) => {
+                                        app.emit_all("vrc-osc-event", Payload { message: format!("Boop").into() }).unwrap();
+                                    },
+                                    _ => {
+                                        app.emit_all("vrc-osc-event", Payload { message: format!("Something went wrong when triggering your QTShock.").into() }).unwrap();
+                                    }
+
+                                }
+                            }
+                            if f < 0.2f32 && *VRC_OSC_CANSHOCK.lock().unwrap() == false {
+                                *VRC_OSC_CANSHOCK.lock().unwrap() = true;
+                                app.emit_all("vrc-osc-event", Payload { message: format!("Unboop").into() }).unwrap();
+                            }
+                        },
+                        _ => {
+                            app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad value type.").into() }).unwrap();
+                        }
+                    }
+                },
+                QTSOSCType::HIT => {
+                    match msg.args[0] {
+                        OscType::Bool(b) => {
+                            app.emit_all("vrc-osc-event", Payload { message: format!("HIT!!!!!!!!!!!!!!!!!!!!").into() }).unwrap();
+                            if b {
+                                match trigger_qtshock(qt_osc_interaction) {
+                                    Ok(()) => {
+                                    },
+                                    _ => {
+                                        app.emit_all("vrc-osc-event", Payload { message: format!("Something went wrong when triggering your QTShock.").into() }).unwrap();
+                                    }
+    
+                                }
+                            }
+                        },
+                        _ => {
+                            app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad value type.").into() }).unwrap();
+                        }
+                    }
+                }
+            }
         }
         OscPacket::Bundle(bundle) => {
             app.emit_all("vrc-osc-event", Payload { message: format!("VRC OSC bundle | {:?}", bundle).into() }).unwrap();
@@ -94,6 +294,7 @@ fn load_local_ip() -> String {
     let hostname = "qtshock.local";
     match lookup_host(hostname) {
         Ok(ips) => {
+            *QTSHOCK_IP.lock().unwrap() = ips[0].to_string();
             ips[0].to_string()
         },
         Err(err) => {
@@ -104,12 +305,12 @@ fn load_local_ip() -> String {
 }
 
 #[tauri::command]
-fn shock(ip: &str, strength: &str) -> String {
+fn shock(strength: &str) -> String {
     match strength.to_string().parse::<i16>() {
         Ok(i) => {
             let params = [("strength", strength)];
             let client = reqwest::blocking::Client::new();
-            let res = client.post(format!("http://{}/shock", ip))
+            let res = client.post(format!("http://{}/shock", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
             .send()
             .unwrap();
@@ -123,7 +324,7 @@ fn shock(ip: &str, strength: &str) -> String {
 }
 
 #[tauri::command]
-fn vibrate(ip: &str, strength: &str) -> String {
+fn vibrate(strength: &str) -> String {
     match strength.to_string().parse::<i16>() {
         Ok(i) => {
             if i < 1 || i > 99 {
@@ -131,7 +332,7 @@ fn vibrate(ip: &str, strength: &str) -> String {
             }
             let params = [("strength", strength)];
             let client = reqwest::blocking::Client::new();
-            let res = client.post(format!("http://{}/vibrate", ip))
+            let res = client.post(format!("http://{}/vibrate", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
             .send()
             .unwrap();
@@ -144,9 +345,9 @@ fn vibrate(ip: &str, strength: &str) -> String {
 }
 
 #[tauri::command]
-fn beep(ip: &str) -> String {
+fn beep() -> String {
     let client = reqwest::blocking::Client::new();
-    let res = client.post(format!("http://{}/beep", ip))
+    let res = client.post(format!("http://{}/beep", QTSHOCK_IP.lock().unwrap()))
     .send()
     .unwrap();
     format!("Beep was called")
@@ -154,7 +355,7 @@ fn beep(ip: &str) -> String {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![load_local_ip, start_vrc_osc, shock, vibrate, beep])
+        .invoke_handler(tauri::generate_handler![load_local_ip, set_shock_strength, set_vibrate_strength, start_vrc_osc, shock, vibrate, beep])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
