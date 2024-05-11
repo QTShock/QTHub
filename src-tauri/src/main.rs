@@ -18,7 +18,6 @@ use poem::{
     handler, listener::TcpListener, post,
     Route, Server, web::Json
 };
-use gsi_cs2::{player::MatchStats, provider::Provider, Body};
 use reqwest;
 
 
@@ -50,7 +49,7 @@ async fn set_vibrate_strength(strength: i16) {
 
 
 
-async fn death_check(data: Json<Body>) {
+async fn death_check(data: Json<gsi_cs2::Body>) {
     let player = match data.player.as_ref() {
         Some(plyr) => {
             plyr
@@ -91,8 +90,7 @@ async fn death_check(data: Json<Body>) {
         map.insert("_type", 1);
         map.insert("Strength", 2);
 
-        let cs_web_client = reqwest::Client::new();
-        trigger_qtshock(QTSInteraction::SHOCK);
+        let _ = trigger_qtshock(QTSInteraction::SHOCK);
     }
 }
 
@@ -122,28 +120,25 @@ fn trigger_qtshock(interaction: QTSInteraction) -> Result<(), String>{
         QTSInteraction::BEEP => {
             beep();
             Ok(())
-        },
-        _ => {
-            Err("Something went wrong!".to_string())
         }
     }
 }
 
 #[tauri::command]
-fn start_cs_listener(app: tauri::AppHandle) {
+fn start_cs_listener() {
     
-    let new_thread = thread::spawn(|| {
-        block_on(cs_thread(app));
+    let _new_thread = thread::spawn(|| {
+        let _ = block_on(cs_thread());
     });
     beep();
 }
 
 #[handler]
-async fn cs_update(data: Json<Body>) {
+async fn cs_update(data: Json<gsi_cs2::Body>) {
     death_check(data.clone()).await;
 }
 
-async fn cs_thread(app: tauri::AppHandle) -> Result<(), std::io::Error>{
+async fn cs_thread() -> Result<(), std::io::Error>{
     tracing_subscriber::fmt::init();
 
     let app = Route::new().at("/", post(cs_update));
@@ -155,12 +150,12 @@ async fn cs_thread(app: tauri::AppHandle) -> Result<(), std::io::Error>{
 
 
 #[tauri::command]
-fn start_vrc_osc(app: tauri::AppHandle, start: bool) {
+fn start_vrc_osc(app: AppHandle, start: bool) {
     *VRC_OSC_THREAD.lock().unwrap() = start;
     if !start {
         return;
     }
-    let new_thread = thread::spawn(|| {
+    let _new_thread = thread::spawn(|| {
         vrc_osc_thread(app);
     });
     let _ = beep();
@@ -168,7 +163,7 @@ fn start_vrc_osc(app: tauri::AppHandle, start: bool) {
 
 
 
-fn handle_packet(app: &tauri::AppHandle, packet: OscPacket) {
+fn handle_packet(app: &AppHandle, packet: OscPacket) {
     let keep_thread: bool = *VRC_OSC_THREAD.lock().unwrap();
     if !keep_thread {
         return;
@@ -251,7 +246,7 @@ fn handle_packet(app: &tauri::AppHandle, packet: OscPacket) {
     }
 }
 
-fn vrc_osc_thread(app: tauri::AppHandle) {
+fn vrc_osc_thread(app: AppHandle) {
     let addr = match SocketAddrV4::from_str("127.0.0.1:9001") {
         Ok(addr) => {
             println!("Got proper address!");
@@ -274,7 +269,7 @@ fn vrc_osc_thread(app: tauri::AppHandle) {
             break;
         }
         match sock.recv_from(&mut buf) {
-            Ok((size, addr)) => {
+            Ok((size, _addr)) => {
                 let (_, packet) = rosc::decoder::decode_udp(&buf[..size]).unwrap();
                 handle_packet(&app, packet);
             }
@@ -308,9 +303,12 @@ fn load_local_ip() -> String {
 fn shock(strength: &str) -> String {
     match strength.to_string().parse::<i16>() {
         Ok(i) => {
+            if i < 1 || i > 99 {
+                return "".to_string();
+            }
             let params = [("strength", strength)];
             let client = reqwest::blocking::Client::new();
-            let res = client.post(format!("http://{}/shock", QTSHOCK_IP.lock().unwrap()))
+            let _res = client.post(format!("http://{}/shock", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
             .send()
             .unwrap();
@@ -332,7 +330,7 @@ fn vibrate(strength: &str) -> String {
             }
             let params = [("strength", strength)];
             let client = reqwest::blocking::Client::new();
-            let res = client.post(format!("http://{}/vibrate", QTSHOCK_IP.lock().unwrap()))
+            let _res = client.post(format!("http://{}/vibrate", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
             .send()
             .unwrap();
@@ -347,7 +345,7 @@ fn vibrate(strength: &str) -> String {
 #[tauri::command]
 fn beep() -> String {
     let client = reqwest::blocking::Client::new();
-    let res = client.post(format!("http://{}/beep", QTSHOCK_IP.lock().unwrap()))
+    let _res = client.post(format!("http://{}/beep", QTSHOCK_IP.lock().unwrap()))
     .send()
     .unwrap();
     format!("Beep was called")
@@ -355,7 +353,7 @@ fn beep() -> String {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![load_local_ip, set_shock_strength, set_vibrate_strength, start_vrc_osc, shock, vibrate, beep])
+        .invoke_handler(tauri::generate_handler![load_local_ip, set_shock_strength, set_vibrate_strength, start_cs_listener, start_vrc_osc, shock, vibrate, beep])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
