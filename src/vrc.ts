@@ -38,22 +38,6 @@ function checkIpAddress(ip: string) {
     const ipv6Pattern =  
         /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/; 
     return ipv4Pattern.test(ip) || ipv6Pattern.test(ip); 
-} 
-
-async function shock() {
-  if (shockStrengthEl) {
-    console.log(await invoke("shock", {strength: shockStrengthEl.value }));
-  }
-}
-
-async function vibrate() {
-    if (vibrateStrengthEl) {
-      console.log(await invoke("vibrate", {strength: vibrateStrengthEl.value }));
-    }
-}
-
-async function beep() {
-    console.log(await invoke("beep"));
 }
 
 async function setShockStrength(strength: number) {

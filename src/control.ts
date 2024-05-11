@@ -75,13 +75,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     shockBtn = document.getElementById("shock-btn") as HTMLButtonElement;
     vibrateBtn = document.getElementById("vibrate-btn") as HTMLButtonElement;
     beepBtn = document.getElementById("beep-btn") as HTMLButtonElement;
-    shockBtn.addEventListener("click", (e) => {
+    shockBtn.addEventListener("click", () => {
         shock();
     });
-    vibrateBtn.addEventListener("click", (e) => {
+    vibrateBtn.addEventListener("click", () => {
         vibrate();
     });
-    beepBtn.addEventListener("click", (e) => {
+    beepBtn.addEventListener("click", () => {
         beep();
     });
 });
