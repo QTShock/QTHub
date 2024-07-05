@@ -24,8 +24,8 @@ use reqwest;
 mod defines;
 
 
-static QTSHOCK_SHK_STRENGTH: Mutex<i16> = Mutex::new(10);
-static QTSHOCK_VIB_STRENGTH: Mutex<i16> = Mutex::new(80);
+static QTSHOCK_SHK_STRENGTH: Mutex<u8> = Mutex::new(10);
+static QTSHOCK_VIB_STRENGTH: Mutex<u8> = Mutex::new(80);
 static QTSHOCK_IP: Mutex<String> = Mutex::new(String::new());
 
 static VRC_OSC_THREAD: Mutex<bool> = Mutex::new(true);
@@ -36,12 +36,12 @@ static CS_CURRENT_DEATH_COUNT: Mutex<u16> = Mutex::new(0);
 
 
 #[tauri::command]
-async fn set_shock_strength(strength: i16) {
+async fn set_shock_strength(strength: u8) {
     *QTSHOCK_SHK_STRENGTH.lock().unwrap() = strength;
 }
 
 #[tauri::command]
-async fn set_vibrate_strength(strength: i16) {
+async fn set_vibrate_strength(strength: u8) {
     *QTSHOCK_VIB_STRENGTH.lock().unwrap() = strength;
 }
 
@@ -90,7 +90,7 @@ async fn death_check(data: Json<gsi_cs2::Body>) {
         map.insert("_type", 1);
         map.insert("Strength", 2);
 
-        let _ = trigger_qtshock(QTSInteraction::SHOCK);
+        let _ = trigger_qtshock(0, QTSInteraction::SHOCK);
     }
 }
 
@@ -107,18 +107,18 @@ struct Payload {
     message: String
 }
 
-fn trigger_qtshock(interaction: QTSInteraction) -> Result<(), String>{
+fn trigger_qtshock(shocker: u8, interaction: QTSInteraction) -> Result<(), String>{
     match interaction {
         QTSInteraction::SHOCK => {
-            shock(QTSHOCK_SHK_STRENGTH.lock().unwrap().to_string().as_str());
+            shock(shocker, QTSHOCK_SHK_STRENGTH.lock().unwrap().to_string().as_str());
             Ok(())
         },
         QTSInteraction::VIBRATE => {
-            vibrate(QTSHOCK_VIB_STRENGTH.lock().unwrap().to_string().as_str());
+            vibrate(shocker, QTSHOCK_VIB_STRENGTH.lock().unwrap().to_string().as_str());
             Ok(())
         },
         QTSInteraction::BEEP => {
-            beep();
+            beep(shocker);
             Ok(())
         }
     }
@@ -130,7 +130,7 @@ fn start_cs_listener() {
     let _new_thread = thread::spawn(|| {
         let _ = block_on(cs_thread());
     });
-    beep();
+    beep(0);
 }
 
 #[handler]
@@ -158,7 +158,7 @@ fn start_vrc_osc(app: AppHandle, start: bool) {
     let _new_thread = thread::spawn(|| {
         vrc_osc_thread(app);
     });
-    let _ = beep();
+    let _ = beep(0);
 }
 
 
@@ -175,7 +175,14 @@ fn handle_packet(app: &AppHandle, packet: OscPacket) {
             }
             app.emit_all("vrc-osc-event", Payload { message: format!("VRC OSC msg | {}: {:?}", msg.addr, msg.args).into() }).unwrap();
             let addr_parts: Vec<&str> = msg.addr.split("_").collect();
-            let qt_osc_type: QTSOSCType = match QTSOSCType::from_str(addr_parts[1]) {
+            let shocker_index: u8 = match addr_parts[1].parse::<u8>() {
+                Ok(index) => index,
+                Err(e) => {
+                    app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad invalid shocker index.").into() }).unwrap();
+                    0
+                }
+            };
+            let qt_osc_type: QTSOSCType = match QTSOSCType::from_str(addr_parts[2]) {
                 Ok(osc_type) => osc_type,
                 _ => {
                     app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad command type.").into() }).unwrap();
@@ -183,7 +190,7 @@ fn handle_packet(app: &AppHandle, packet: OscPacket) {
                 }
             };
 
-            let qt_osc_interaction: QTSInteraction = match QTSInteraction::from_str(addr_parts[2]) {
+            let qt_osc_interaction: QTSInteraction = match QTSInteraction::from_str(addr_parts[3]) {
                 Ok(osc_interaction) => osc_interaction,
                 _ => {
                     app.emit_all("vrc-osc-event", Payload { message: format!("Invalid QTShock OSC data received. Bad interaction type.").into() }).unwrap();
@@ -197,7 +204,7 @@ fn handle_packet(app: &AppHandle, packet: OscPacket) {
                         OscType::Float(f) => {
                             if f > 0.8f32 && *VRC_OSC_CANSHOCK.lock().unwrap() == true {
                                 *VRC_OSC_CANSHOCK.lock().unwrap() = false;
-                                match trigger_qtshock(qt_osc_interaction) {
+                                match trigger_qtshock(shocker_index, qt_osc_interaction) {
                                     Ok(()) => {
                                         app.emit_all("vrc-osc-event", Payload { message: format!("Boop").into() }).unwrap();
                                     },
@@ -222,7 +229,7 @@ fn handle_packet(app: &AppHandle, packet: OscPacket) {
                         OscType::Bool(b) => {
                             app.emit_all("vrc-osc-event", Payload { message: format!("HIT!!!!!!!!!!!!!!!!!!!!").into() }).unwrap();
                             if b {
-                                match trigger_qtshock(qt_osc_interaction) {
+                                match trigger_qtshock(shocker_index, qt_osc_interaction) {
                                     Ok(()) => {
                                     },
                                     _ => {
@@ -300,13 +307,13 @@ fn load_local_ip() -> String {
 }
 
 #[tauri::command]
-fn shock(strength: &str) -> String {
+fn shock(shocker: u8, strength: &str) -> String {
     match strength.to_string().parse::<i16>() {
         Ok(i) => {
             if i < 1 || i > 99 {
                 return "".to_string();
             }
-            let params = [("strength", strength)];
+            let params = [("shocker", shocker.to_string()), ("strength", strength.to_string())];
             let client = reqwest::blocking::Client::new();
             let _res = client.post(format!("http://{}/shock", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
@@ -322,13 +329,13 @@ fn shock(strength: &str) -> String {
 }
 
 #[tauri::command]
-fn vibrate(strength: &str) -> String {
+fn vibrate(shocker: u8, strength: &str) -> String {
     match strength.to_string().parse::<i16>() {
         Ok(i) => {
             if i < 1 || i > 99 {
                 return "".to_string();
             }
-            let params = [("strength", strength)];
+            let params = [("shocker", shocker.to_string()), ("strength", strength.to_string())];
             let client = reqwest::blocking::Client::new();
             let _res = client.post(format!("http://{}/vibrate", QTSHOCK_IP.lock().unwrap()))
             .form(&params)
@@ -343,9 +350,11 @@ fn vibrate(strength: &str) -> String {
 }
 
 #[tauri::command]
-fn beep() -> String {
+fn beep(shocker: u8) -> String {
     let client = reqwest::blocking::Client::new();
+    let params = [("shocker", shocker.to_string())];
     let _res = client.post(format!("http://{}/beep", QTSHOCK_IP.lock().unwrap()))
+    .form(&params)
     .send()
     .unwrap();
     format!("Beep was called")
