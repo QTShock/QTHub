@@ -313,7 +313,15 @@ pub mod firmware {
                     match port.port_type {
                         SerialPortType::UsbPort(port_info) => {
                             usb_count += 1;
-                            return_html.push_str(format!("<option value=\"{}\">{}</option>", port_name, port_name).as_str());
+                            match port_info.product {
+                                Some(product_info) => {
+                                    return_html.push_str(format!("<option value=\"{}\">{}</option>", port_name, product_info).as_str());
+                                },
+                                None => {
+                                    return_html.push_str(format!("<option value=\"{}\">{}</option>", port_name, port_name).as_str());
+                                }
+                            }
+                            
                         },
                         _ => {
 
