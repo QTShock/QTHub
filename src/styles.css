@@ -42,6 +42,17 @@ h2 {
   margin-bottom: 10px;
 }
 
+.grid-container-4 {
+  align-self: center;
+  align-items: center;
+  width: auto;
+  height: auto;
+  display: grid;
+  grid-auto-rows: 150px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
 .grid-container-3 {
   align-self: center;
   align-items: center;
@@ -112,7 +123,7 @@ g {
   color: #19d300;
 }
 
-b {
+bl {
   color: #74c7ff;
 }
 

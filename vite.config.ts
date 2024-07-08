@@ -19,9 +19,11 @@ export default defineConfig(async () => ({
   build: {
     rollupOptions: {
       input: {
-        main: "index.html",
-        devices: "control.html",
-        setup: "vrchat.html"
+        index: "index.html",
+        firmware: "firmware.html",
+        control: "control.html",
+        vrchat: "vrchat.html",
+        cs: "cs2.html"
       }
     }
   },

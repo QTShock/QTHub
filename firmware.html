@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QTShock Manager</title>
+    <script type="module" src="/src/firmware.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="container">
+      <a href="index.html"><button style="height: 40px; width: 50px; padding:0; float: left;">↖</button></a>
+      <div style="align-content: center;"><img style="height: 75px; width: 75px;" src="/src/assets/logo.png"></div>
+      <h1 style="margin-bottom: 10px;">Firmware</h1>
+      <div class="divider"></div>
+
+      <div class="main-panel" id="main-panel">
+
+        <div style="margin-top: 10px; margin-bottom: 50px;" class="row">
+          <label style="margin: 5px;" for="devices">Device:</label>
+          <select style="height: 30px;" name="devices" id="devices">
+          </select>
+          <button style="padding: 6px 10px 4px 11px; margin: 0px 0px 3px 5px;" id="refresh-devices-btn">refresh</button>
+        </div>
+
+
+        <p>Update source:</p>
+        <form style="margin-bottom: 70px" id="update-form">
+          <input type="radio" id="server" name="update-source" value="server" checked>
+          <label for="server">Update from remote server (suggested)</label><br>
+          <input type="radio" id="local" name="update-source" value="local">
+          <label for="local">Update using local binaries</label><br><br>
+          <button type="submit">Update firmware</button>
+        </form>
+        <label id="status-label" for="progress-bar">Click the "Update firmware" button to update your QTShock</label><br>
+        <progress id="progress-bar" value="0" max="100">0%</progress>
+        <label id="progress-label" for="progress-bar">0%</label>
+        
+      </div>
+
+    </div>
+  </body>
+</html>
