@@ -12,7 +12,6 @@ use std::net::{SocketAddrV4, UdpSocket};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::thread;
-use tokio::runtime::Runtime;
 
 use poem::{
     handler, listener::TcpListener, post,
@@ -139,7 +138,7 @@ fn start_cs_listener() {
             cs_thread().await;
         })
     });
-    beep(0);
+    block_on(beep(0));
 }
 
 #[handler]
@@ -167,7 +166,7 @@ fn start_vrc_osc(app: AppHandle, start: bool) {
     let _new_thread = thread::spawn(|| {
         vrc_osc_thread(app);
     });
-    let _ = beep(0);
+    let _ = block_on(beep(0));
 }
 
 

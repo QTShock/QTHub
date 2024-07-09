@@ -24,8 +24,6 @@ tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", 
 serialport = "4.4.0"
 espflash = { version = "3.0.0", features = ["serialport", "cli"], default-features = false }
 tempfile = "3.10.1"
-rocket = "0.5.1"
-tokio = { versioni = "1.38.0", features = ["rt"] }
 
 
 [features]
