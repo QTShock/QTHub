@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="/src/games.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QTShock Manager</title>
-    <script type="module" src="/src/games.ts" defer></script>
+    <script type="module" src="/src/cs.ts" defer></script>
   </head>
 
   <body>
@@ -23,15 +23,10 @@
           <div class="knobs"></div>
           <div class="layer"></div>
         </div>
-        
 
-        <div class="container">
-          <label>Shock on death: </label>
-          <div class="button b2">
-            <input id="cs-toggle" type="checkbox" class="checkbox" id="preshockSwitch"/>
-            <div class="knobs"></div>
-            <div class="layer"></div>
-          </div>
+        <div class="console-box">
+          <ul id="cs-console">
+          </ul>
         </div>
 
         <div class="input-row">
