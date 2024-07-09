@@ -4,7 +4,7 @@
 use defines::{QTSInteraction, QTSOSCType};
 use tauri::async_runtime::block_on;
 use tauri::{AppHandle, Manager};
-use rosc::{OscPacket, OscType};
+use rosc::{OscPacket, OscType, OscMessage};
 use std::collections::HashMap;
 use std::env;
 use std::io::Read;
@@ -12,6 +12,8 @@ use std::net::{SocketAddrV4, UdpSocket};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::thread;
+use rosc::encoder;
+
 
 use poem::{
     handler, listener::TcpListener, post,
@@ -33,6 +35,7 @@ static QTSHOCK_VIB_STRENGTH: Mutex<u8> = Mutex::new(80);
 static QTSHOCK_IP: Mutex<String> = Mutex::new(String::new());
 
 static VRC_OSC_THREAD: Mutex<bool> = Mutex::new(true);
+static VRC_OSC_SENDER: Mutex<Option<UdpSocket>> = Mutex::new(None);
 static VRC_OSC_CANSHOCK: Mutex<bool> = Mutex::new(true);
 
 static CS_CURRENT_DEATH_COUNT: Mutex<u16> = Mutex::new(0);
@@ -42,11 +45,49 @@ static CS_CURRENT_DEATH_COUNT: Mutex<u16> = Mutex::new(0);
 #[tauri::command]
 async fn set_shock_strength(strength: u8) {
     *QTSHOCK_SHK_STRENGTH.lock().unwrap() = strength;
+    let to_addr = match SocketAddrV4::from_str("127.0.0.1:9000") {
+        Ok(addr) => {
+            println!("Got proper address!");
+            addr
+        },
+        Err(_) => {
+            println!("FAILED TO GET ADDRESS!");
+            return;
+        }
+    };
+    let mutex_sock = VRC_OSC_SENDER.lock().unwrap();
+    // switch view
+    let msg_buf = encoder::encode(&OscPacket::Message(OscMessage {
+        addr: "/avatar/parameters/QTS_IN_SHOCK_STRENGTH".to_string(),
+        args: vec![OscType::Float(((*QTSHOCK_SHK_STRENGTH.lock().unwrap() - 1) as f32) / 100.0)],
+    }))
+    .unwrap();
+
+    mutex_sock.as_ref().unwrap().send_to(&msg_buf, to_addr).unwrap();
 }
 
 #[tauri::command]
 async fn set_vibrate_strength(strength: u8) {
     *QTSHOCK_VIB_STRENGTH.lock().unwrap() = strength;
+    let to_addr = match SocketAddrV4::from_str("127.0.0.1:9000") {
+        Ok(addr) => {
+            println!("Got proper address!");
+            addr
+        },
+        Err(_) => {
+            println!("FAILED TO GET ADDRESS!");
+            return;
+        }
+    };
+    let mutex_sock = VRC_OSC_SENDER.lock().unwrap();
+    // switch view
+    let msg_buf = encoder::encode(&OscPacket::Message(OscMessage {
+        addr: "/avatar/parameters/QTS_IN_VIBRATE_STRENGTH".to_string(),
+        args: vec![OscType::Float(((*QTSHOCK_VIB_STRENGTH.lock().unwrap() - 1) as f32) / 100.0)],
+    }))
+    .unwrap();
+
+    mutex_sock.as_ref().unwrap().send_to(&msg_buf, to_addr).unwrap();
 }
 
 
@@ -166,6 +207,9 @@ fn start_vrc_osc(app: AppHandle, start: bool) {
     let _new_thread = thread::spawn(|| {
         vrc_osc_thread(app);
     });
+    let _new_thread = thread::spawn(|| {
+        vrc_osc_send_thread();
+    });
     let _ = block_on(beep(0));
 }
 
@@ -261,7 +305,43 @@ async fn handle_packet(app: &AppHandle, packet: OscPacket) {
     }
 }
 
+fn vrc_osc_send_thread() {
+    let host_addr = match SocketAddrV4::from_str("127.0.0.1:7766") {
+        Ok(addr) => {
+            println!("Got proper address!");
+            addr
+        },
+        Err(_) => {
+            println!("FAILED TO GET ADDRESS!");
+            return;
+        }
+    };
+    let to_addr = match SocketAddrV4::from_str("127.0.0.1:9000") {
+        Ok(addr) => {
+            println!("Got proper address!");
+            addr
+        },
+        Err(_) => {
+            println!("FAILED TO GET ADDRESS!");
+            return;
+        }
+    };
+    let send_sock = UdpSocket::bind(host_addr).unwrap();
+    let mut mutex_sock = VRC_OSC_SENDER.lock().unwrap();
+    *mutex_sock = Some(send_sock);
+    // switch view
+    let msg_buf = encoder::encode(&OscPacket::Message(OscMessage {
+        addr: "/avatar/parameters/QTS_IN_SHOCK_STRENGTH".to_string(),
+        args: vec![OscType::Float(((*QTSHOCK_SHK_STRENGTH.lock().unwrap() - 1) as f32) / 100.0)],
+    }))
+    .unwrap();
+
+    mutex_sock.as_ref().unwrap().send_to(&msg_buf, to_addr).unwrap();
+
+}
+
 fn vrc_osc_thread(app: AppHandle) {
+
     let addr = match SocketAddrV4::from_str("127.0.0.1:9001") {
         Ok(addr) => {
             println!("Got proper address!");

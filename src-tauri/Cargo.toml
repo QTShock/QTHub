@@ -2,7 +2,7 @@
 name = "qthub"
 version = "0.0.5"
 description = "The hub for all things QTShock"
-authors = ["you"]
+authors = ["QTShock"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
