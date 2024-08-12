@@ -451,7 +451,7 @@ async fn beep(shocker: u8) -> Result<String, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![load_local_ip, firmware::firmware::flash_device_firmware, firmware::firmware::get_available_serial_devices, set_shock_strength, set_vibrate_strength, start_cs_listener, start_vrc_osc, shock, vibrate, beep])
+        .invoke_handler(tauri::generate_handler![load_local_ip, firmware::firmware::flash_device_firmware, firmware::firmware::factory_reset_device, firmware::firmware::get_available_serial_devices, set_shock_strength, set_vibrate_strength, start_cs_listener, start_vrc_osc, shock, vibrate, beep])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -7,6 +7,7 @@ const store = new Store(".settings.dat");
 
 let deviceSelectEl: HTMLSelectElement | null;
 let refreshDevicesBtnEl: HTMLElement | null;
+let factoryResetDeviceBtnEl: HTMLElement | null;
 let statusLabelEl: HTMLElement | null;
 let progressBarEl: HTMLProgressElement | null;
 let progressLabelEl: HTMLElement | null;
@@ -25,6 +26,14 @@ async function startSerialEventListener() {
       console.log(`Progress: ${event.payload.progress}`);
     }
   });
+}
+
+async function factoryResetDevice() {
+  if (statusLabelEl) {
+    let portString = await store.get("selected-device") as string;
+    console.log(portString);
+    statusLabelEl.innerHTML = await invoke("factory_reset_device", {app: app, portStr: portString}) as string;
+  }
 }
 
 async function flashFirmware(binSource: string) {
@@ -56,12 +65,17 @@ async function updateDevices() {
 window.addEventListener("DOMContentLoaded", async () => {
   deviceSelectEl = document.querySelector("#devices");
   refreshDevicesBtnEl = document.querySelector("#refresh-devices-btn");
+  factoryResetDeviceBtnEl = document.querySelector("#factory-reset-btn");
   statusLabelEl = document.querySelector("#status-label");
   progressBarEl = document.querySelector("#progress-bar");
   progressLabelEl = document.querySelector("#progress-label");
 
   if (refreshDevicesBtnEl) {
     refreshDevicesBtnEl.onclick = updateDevices;
+  }
+
+  if (factoryResetDeviceBtnEl) {
+    factoryResetDeviceBtnEl.onclick = factoryResetDevice;
   }
 
   updateDevices();

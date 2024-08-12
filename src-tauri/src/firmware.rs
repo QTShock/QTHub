@@ -120,7 +120,6 @@ pub mod firmware {
         return None
     }
 
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
     #[tauri::command]
     pub async fn flash_device_firmware(app: tauri::AppHandle, port_str: &str, source: &str) -> Result<String, tauri::Error> {
         app.emit_all("update-progress-text", Payload { message: format!("<y>Starting flash...</y>").into(), progress: 0 }).unwrap();
@@ -249,6 +248,153 @@ pub mod firmware {
             };
 
         app.emit_all("update-progress-text", Payload { message: format!("<bl>Erasing existing flash...</bl>").into(), progress: 65 }).unwrap();
+        
+        let flash_settings: FlashSettings = FlashSettings::new(Some(espflash::flasher::FlashMode::Dio), Some(espflash::flasher::FlashSize::_4Mb), Some(espflash::flasher::FlashFrequency::_40Mhz));
+
+        let flash_data: FlashData = match FlashData::new(
+            Some(&bootloader_path),
+            Some(&partitions_path),
+            Some(0x8000),
+            Some("app0".to_string()),
+            flash_settings,
+            1 * 100 + 1) {
+                Ok(data) => {
+                    app.emit_all("update-progress-text", Payload { message: format!("<y>Set up flash data!</y>").into(), progress: 85 }).unwrap();
+                    data
+                },
+                _ => {
+                    return Ok(format!("<r>Failed to flash firmware! (Bad flash data)</r>"));
+                }
+            };
+
+            let chip_target = flasher.chip().into_target();
+        
+        let freq = match chip_target.crystal_freq(flasher.connection()) {
+            Ok(frequency) => {
+                app.emit_all("update-progress-text", Payload { message: format!("<y>Got crystal frequency!</y>").into(), progress: 100 }).unwrap();
+                frequency
+            },
+            _ => {
+                return Ok(format!("<r>Failed to flash firmware! (Couldn't fetch crystal frequency)</r>"));
+            }
+        };
+
+
+        let flash_res = match flasher.load_elf_to_flash(&elf_file.unwrap(), flash_data, Some(&mut QTShockProgress::new(Some(app))), freq) {
+            Ok(()) => {
+                format!("<g>Successfully flashed firmware!</g>")
+            },
+            _ => {
+                return Ok(format!("<r>Failed to flash firmware! (Flashing FAILED)</r>"));
+            }
+        };
+
+        Ok(format!("<g>Successfully flashed firmware!</g>"))
+    }
+
+    #[tauri::command]
+    pub async fn factory_reset_device(app: tauri::AppHandle, port_str: &str) -> Result<String, tauri::Error> {
+        app.emit_all("update-progress-text", Payload { message: format!("<y>Starting flash...</y>").into(), progress: 0 }).unwrap();
+
+        let mut firmware_path: PathBuf = PathBuf::default();
+        let mut elf_file: Option<Vec<u8>> = None;
+        let mut bootloader_path: PathBuf = PathBuf::default();
+        let mut partitions_path: PathBuf = PathBuf::default();
+
+        let tmp_dir: TempDir = match Builder::new().prefix("qtstmp").tempdir() {
+            Ok(dir) => {
+                println!("Created tmp folder!");
+                dir
+            },
+            _ => {
+                println!("Failed to create tmp folder");
+                return Ok(format!("<r>Failed to flash firmware! (Couldn't create temp directory)</r>"));
+            }
+        };
+
+        let tmp_dir_path = tmp_dir.path().to_path_buf();
+        app.emit_all("update-progress-text", Payload { message: format!("<bl>Downloading binaries...</bl>").into(), progress: 15 }).unwrap();
+        match download_binaries(&tmp_dir_path).await {
+            Some(error) => {
+                return Ok(error);
+            },
+            None => {}
+        };
+        firmware_path = tmp_dir_path.join("firmware.elf");
+        bootloader_path = tmp_dir_path.join("bootloader.bin");
+        partitions_path = tmp_dir_path.join("partitions.bin");
+
+        elf_file = match fs::read(&firmware_path) {
+            Ok(file) => {
+                app.emit_all("update-progress-text", Payload { message: format!("<y>Read local firmware binary!</y>").into(), progress: 70 }).unwrap();
+                Some(file)
+            },
+            _ => {
+                println!("Something went wrong!");
+                return Ok(format!("<r>Failed to flash firmware! (Local binary not found or invalid at '{}')</r>", firmware_path.to_str().unwrap()));
+                None
+            }
+        };
+
+        if (elf_file.is_none()) {
+            return Ok(format!("<r>Failed to flash firmware! (File couldn't be loaded)</r>"));
+        }
+
+        let found_port: SerialPortInfo = match serialport::available_ports().unwrap().iter().find(|x| x.port_name == port_str) {
+            Some(port_info) => {
+                port_info.clone()
+            },
+            _ => {
+                return Ok(format!("<r>Failed to flash firmware! (Port '{}' doesn't exist)</r>", port_str));
+            }
+        };
+
+        let usb_port_info: UsbPortInfo = match found_port.port_type {
+            serialport::SerialPortType::UsbPort(usb_info) => {
+                app.emit_all("update-progress-text", Payload { message: format!("<y>Found USB port '{}'!</y>", port_str).into(), progress: 20 }).unwrap();
+                usb_info
+            },
+            _ => {
+                return Ok(format!("<r>Failed to flash firmware! (Invalid port '{}')</r>", port_str));
+            }
+        };
+
+
+        let opened_port: Port = match serialport::new(&found_port.port_name, 115200)
+        .flow_control(serialport::FlowControl::None)
+        .open_native() {
+            Ok(mut port) => {
+                app.emit_all("update-progress-text", Payload { message: format!("<y>Opened connection on serial port '{}'!</y>", &found_port.port_name).into(), progress: 40 }).unwrap();
+                port
+            },
+            Err(err) => {
+                println!("{}", err.description);
+                return Ok(format!("<r>Failed to flash firmware! (Couldn't open serial port '{}'. Is it already in use?</r>", &found_port.port_name));
+            }
+        };
+
+        app.emit_all("update-progress-text", Payload { message: "<bl>Connecting to QTShock flash...</bl>".to_string(), progress: 45 }).unwrap();
+
+        let mut flasher = match espflash::flasher::Flasher::connect(
+            opened_port,
+            usb_port_info,
+            Some(460800),
+            true,
+            true,
+            false,
+            Some(espflash::targets::Chip::Esp32),
+            espflash::connection::reset::ResetAfterOperation::HardReset,
+            espflash::connection::reset::ResetBeforeOperation::DefaultReset) {
+                Ok(fsr) => {
+                    app.emit_all("update-progress-text", Payload { message: format!("<y>Set up flasher!</y>").into(), progress: 55 }).unwrap();
+                    fsr
+                },
+                Err(err) => {
+                    return Ok(format!("<r>Failed to flash firmware! ({})</r>", err));
+                }
+            };
+
+        app.emit_all("update-progress-text", Payload { message: format!("<bl>Erasing existing flash...</bl>").into(), progress: 65 }).unwrap();
 
         let _ = match flasher.erase_flash() {
             Ok(_) => {
@@ -299,7 +445,7 @@ pub mod firmware {
             }
         };
 
-        Ok(format!("<g>Successfully flashed firmware!</g>"))
+        Ok(format!("<g>Successfully factory reset your QTShock!</g>"))
     }
 
     #[tauri::command]

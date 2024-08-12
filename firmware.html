@@ -17,16 +17,17 @@
 
       <div class="main-panel" id="main-panel">
 
-        <div style="margin-top: 10px; margin-bottom: 50px;" class="row">
+        <div style="margin-top: 10px; margin-bottom: 15px;" class="row">
           <label style="margin: 5px;" for="devices">Device:</label>
           <select style="height: 30px;" name="devices" id="devices">
           </select>
           <button style="padding: 6px 10px 4px 11px; margin: 0px 0px 3px 5px;" id="refresh-devices-btn">refresh</button>
         </div>
+        <button style="padding: 6px; margin-bottom:20px; color:red;" id="factory-reset-btn">Factory Reset</button>
 
 
         <p>Update source:</p>
-        <form style="margin-bottom: 70px" id="update-form">
+        <form style="margin-bottom: 55px" id="update-form">
           <input type="radio" id="server" name="update-source" value="server" checked>
           <label for="server">Update from remote server (suggested)</label><br>
           <input type="radio" id="local" name="update-source" value="local">
