@@ -21,18 +21,18 @@ function checkIpAddress(ip: string) {
 
 async function shock() {
   if (shockStrengthEl) {
-    console.log(await invoke("shock", {ip: qtshockIp, strength: shockStrengthEl.value }));
+    console.log(await invoke("shock", {shocker: 0, strength: shockStrengthEl.value }));
   }
 }
 
 async function vibrate() {
     if (vibrateStrengthEl) {
-      console.log(await invoke("vibrate", {ip: qtshockIp, strength: vibrateStrengthEl.value }));
+      console.log(await invoke("vibrate", {shocker: 0, strength: vibrateStrengthEl.value }));
     }
 }
 
 async function beep() {
-    console.log(await invoke("beep", {ip: qtshockIp}));
+    console.log(await invoke("beep", {shocker: 0}));
 }
 
 window.addEventListener("DOMContentLoaded", async () => {

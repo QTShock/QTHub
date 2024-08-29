@@ -3,17 +3,20 @@
 
 use defines::{QTSInteraction, QTSOSCType};
 use tauri::async_runtime::block_on;
-use tauri::{AppHandle, Manager};
+use tauri::{App, AppHandle, Manager};
 use rosc::{OscPacket, OscType, OscMessage};
 use std::collections::HashMap;
+use std::fs;
 use std::env;
 use std::io::Read;
 use std::net::{SocketAddrV4, UdpSocket};
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
+use std::path::PathBuf;
+use rfd::FileDialog;
 use rosc::encoder;
-
 
 use poem::{
     handler, listener::TcpListener, post,
@@ -26,7 +29,7 @@ use dns_lookup::lookup_host;
 
 use reqwest;
 
-
+mod gsi_cfg;
 mod defines;
 mod firmware;
 
@@ -38,6 +41,7 @@ static VRC_OSC_THREAD: Mutex<bool> = Mutex::new(true);
 static VRC_OSC_SENDER: Mutex<Option<UdpSocket>> = Mutex::new(None);
 static VRC_OSC_CANSHOCK: Mutex<bool> = Mutex::new(true);
 
+static CS_GSI_THREAD: Mutex<bool> = Mutex::new(false);
 static CS_CURRENT_DEATH_COUNT: Mutex<u16> = Mutex::new(0);
 
 
@@ -172,29 +176,127 @@ async fn trigger_qtshock(shocker: u8, interaction: QTSInteraction) -> Result<(),
 }
 
 #[tauri::command]
-fn start_cs_listener() {
-    let new_thread = thread::spawn(|| {
-        //let rt = Runtime::new().unwrap();
+fn create_cs_config(app: AppHandle) {
+    let folder: Option<PathBuf> = FileDialog::new()
+        .set_directory("/")
+        .set_title("Select the Counter Strike 2 game directory")
+        .pick_folder();
+
+    let cs_path: PathBuf = match folder {
+        Some(path) => path,
+        None => {
+            app.emit_all("cs-rust-event", Payload { message: "Setup failed. You must select your CS2 game directory to set up QTShock integration.".to_string() });
+            return;
+        }
+    };
+
+    let path_str = match cs_path.to_str() {
+        Some(path) => path,
+        None => {
+            app.emit_all("cs-rust-event", Payload { message: "Setup failed. Something is wrong with the name of your selected directory.".to_string() });
+            return;
+        }
+    };
+
+    if !path_str.ends_with("Counter-Strike Global Offensive") {
+        app.emit_all("cs-rust-event", Payload { message: "Setup failed. This is not the path to CS2..".to_string() });
+        return;
+    }
+
+    let gsi_config: gsi_cfg::gsi_cfg = gsi_cfg::gsi_cfg {
+        uri: "http://127.0.0.1:3005".to_string(),
+        timeout: "1.0".to_string(),
+        buffer: "0.0".to_string(),
+        throttle: "0.0".to_string(),
+        heartbeat: "60.0".to_string(),
+        auth: gsi_cfg::gsi_auth { token: "TOKEN".to_string() },
+        output: gsi_cfg::gsi_output { precision: "3".to_string(), precision_position: "1".to_string(), precision_vector: "3".to_string() },
+        data: gsi_cfg::gsi_data {
+            map_round_wins: "1".to_string(),
+            map: "1".to_string(),
+            player_id: "1".to_string(),
+            player_match_stats: "1".to_string(),
+            player_state: "1".to_string(),
+            player_weapons: "1".to_string(),
+            provider: "1".to_string(),
+            round: "1".to_string(),
+            allgrenades: "1".to_string(),
+            allplayers_id: "1".to_string(),
+            allplayers_match_stats: "1".to_string(),
+            allplayers_position: "1".to_string(),
+            allplayers_state: "1".to_string(),
+            allplayers_weapons: "1".to_string(),
+            bomb: "1".to_string(),
+            phase_countdowns: "1".to_string(),
+            player_position: "1".to_string()
+        }
+
+    };
+    let gsi_config_data = match vdf_serde::to_string(&gsi_config) {
+        Ok(data) => {
+            println!("{}", data);
+            data
+        },
+        Err(e) => {
+            app.emit_all("cs-rust-event", Payload { message: "Setup failed. Something went wrong when creating the gsi config.".to_string() });
+            println!("{}", e);
+            return;
+        }
+    };
+    fs::write(path_str.to_string() + "/game/csgo/cfg/gamestate_integration_qtshock.cfg", gsi_config_data);
+}
+
+#[tauri::command]
+fn start_cs_listener(app: AppHandle, start: bool) {
+    *CS_GSI_THREAD.lock().unwrap() = start;
+    if !start {
+        return;
+    }
+    let cloned_app = app.clone();
+    let _new_thread = thread::spawn(|| {
         block_on(async {
-            cs_thread().await;
+            cs_thread(cloned_app).await;
         })
     });
-    block_on(beep(0));
+    let _ = block_on(beep(0));
+    let _ = app.emit_all("cs-rust-event", Payload { message: format!("Toggled CS2 integration ON").into() });
 }
 
 #[handler]
 async fn cs_update(data: Json<gsi_cs2::Body>) {
+
     death_check(data.clone()).await;
 }
 
-async fn cs_thread() -> Result<(), std::io::Error>{
-    tracing_subscriber::fmt::init();
+async fn stop_gsi_thread(app: AppHandle) {
+    loop {
+        let keep_thread: bool = *CS_GSI_THREAD.lock().unwrap();
+        if !keep_thread {
+            break;
+        }
+    }
+    app.emit_all("cs-rust-event", Payload { message: format!("Toggled CS2 integration OFF").into() });
+}
 
-    let app = Route::new().at("/", post(cs_update));
-
-    Server::new(TcpListener::bind("127.0.0.1:3002"))
-        .run(app)
-        .await
+async fn cs_thread(app: AppHandle) -> Result<(), std::io::Error>{
+    tracing_subscriber::fmt::try_init();
+    let gsi_webserver = Route::new().at("/", post(cs_update));
+    let cloned_app = app.clone();
+    let _server = match Server::new(TcpListener::bind("127.0.0.1:3005"))
+        .run_with_graceful_shutdown(gsi_webserver,
+        async move {
+            stop_gsi_thread(cloned_app).await
+        },
+        Some(Duration::from_secs(5)))
+        .await {
+            Ok(()) => {
+                
+            },
+            Err(e) => {
+                let _ = app.emit_all("cs-rust-event", Payload { message: format!("Something went wrong when starting the CS2 integration. The port provided is already in use.").into() });
+            }
+        };
+    Ok(())
 }
 
 
@@ -451,7 +553,7 @@ async fn beep(shocker: u8) -> Result<String, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![load_local_ip, firmware::firmware::flash_device_firmware, firmware::firmware::factory_reset_device, firmware::firmware::get_available_serial_devices, set_shock_strength, set_vibrate_strength, start_cs_listener, start_vrc_osc, shock, vibrate, beep])
+        .invoke_handler(tauri::generate_handler![load_local_ip, firmware::firmware::flash_device_firmware, firmware::firmware::factory_reset_device, firmware::firmware::get_available_serial_devices, set_shock_strength, set_vibrate_strength, create_cs_config, start_cs_listener, start_vrc_osc, shock, vibrate, beep])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

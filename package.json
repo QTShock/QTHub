@@ -14,7 +14,7 @@
     "tauri-plugin-store-api": "github:tauri-apps/tauri-plugin-store#v1~"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^1",
+    "@tauri-apps/cli": "^1.6.1",
     "typescript": "^5.0.2",
     "vite": "^5.0.0"
   }

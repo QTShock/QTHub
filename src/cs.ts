@@ -22,15 +22,22 @@ type Payload = {
     message: string;
   };
   
-  async function startOscEventListener() {
-    await listen<Payload>('vrc-osc-event', (event) => {
-        console.log(event.payload.message);
-        csLog(event.payload.message);
-    });
-  }
+async function startCSEventListener() {
+  await listen<Payload>('cs-rust-event', (event) => {
+      console.log(event.payload.message);
+      csLog(event.payload.message);
+  });
+}
 
+export async function setupCSConfig() {
+    await invoke("create_cs_config");
+}
 
+declare global {
+    interface Window { setupCSConfig: any }
+}
 
+window.setupCSConfig = setupCSConfig;
 
 function checkIpAddress(ip: string) { 
     const ipv4Pattern =  
@@ -90,11 +97,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     csConsole = document.getElementById("cs-console") as HTMLElement;
     if (!csConsole) return;
     csConsoleDiv = csConsole.parentElement;
-    startOscEventListener();
+    startCSEventListener();
     
     csToggle.addEventListener("change", async (e) => {
-        invoke("start_cs_listener");
-        await csLog(`Toggled CS2 integration ${(e.target as HTMLInputElement).checked ? "ON" : "OFF"}`);
+        if (e.target) {
+            let toggled = (e.target as HTMLInputElement).checked;
+            await invoke("start_cs_listener", {start: toggled});
+        }
     });
 
     shockStrengthEl = document.getElementById("shock-strength") as HTMLInputElement;

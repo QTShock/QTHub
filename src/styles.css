@@ -178,3 +178,19 @@ button {
 button:active {
   background-color: #0f0f0f69;
 }
+
+.version-display {
+  position: absolute;
+  top: 0px;
+  right: 15px;
+  cursor: pointer;
+}
+
+.changelog {
+  position:absolute;
+  top: 25px;
+  right: 15px;
+  padding: 7px;
+  font-size: 13px;
+  background-color: #0000003F;
+}
